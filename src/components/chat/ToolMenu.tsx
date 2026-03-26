@@ -18,26 +18,48 @@ export function ToolMenu({ onSelect, onClose }: ToolMenuProps) {
   return (
     <>
       <div className="fixed inset-0 z-10" onClick={onClose} />
-      <div className="absolute bottom-full left-3 mb-2 z-20 bg-card border border-border rounded-xl shadow-lg p-2 w-72 animate-in slide-in-from-bottom-2 fade-in-0 duration-200">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider px-3 py-2">
+      <div className="absolute bottom-full left-0 mb-2 z-20 bg-card border border-border rounded-2xl shadow-xl p-2 w-[300px] animate-slide-up">
+        <p className="text-[11px] font-semibold text-muted-foreground uppercase tracking-widest px-3 pt-2 pb-1.5">
           Hospital Tools
         </p>
-        {TOOLS.map((tool) => {
-          const Icon = iconMap[tool.icon];
-          return (
-            <button
-              key={tool.id}
-              onClick={() => onSelect(tool.id)}
-              className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-muted transition-colors text-left"
-            >
-              {Icon && <Icon className={`h-5 w-5 ${tool.color} shrink-0`} />}
-              <div>
-                <p className="text-sm font-medium text-foreground">{tool.label}</p>
-                <p className="text-xs text-muted-foreground">{tool.description}</p>
-              </div>
-            </button>
-          );
-        })}
+        <div className="space-y-0.5">
+          {TOOLS.map((tool, i) => {
+            const Icon = iconMap[tool.icon];
+            const isEmergency = tool.id === "emergency";
+            return (
+              <button
+                key={tool.id}
+                onClick={() => onSelect(tool.id)}
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl transition-all duration-200 text-left animate-fade-in-up ${
+                  isEmergency
+                    ? "hover:bg-emergency/8"
+                    : "hover:bg-muted"
+                }`}
+                style={{ animationDelay: `${i * 40}ms` }}
+              >
+                <div
+                  className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${
+                    isEmergency ? "bg-emergency/10" : "bg-primary/8"
+                  }`}
+                >
+                  {Icon && (
+                    <Icon
+                      className={`h-[18px] w-[18px] ${
+                        isEmergency ? "text-emergency" : tool.color
+                      }`}
+                    />
+                  )}
+                </div>
+                <div>
+                  <p className={`text-sm font-medium ${isEmergency ? "text-emergency" : "text-foreground"}`}>
+                    {tool.label}
+                  </p>
+                  <p className="text-xs text-muted-foreground">{tool.description}</p>
+                </div>
+              </button>
+            );
+          })}
+        </div>
       </div>
     </>
   );
