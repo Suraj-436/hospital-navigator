@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useRef } from "react";
 import type { ChatMessage, ToolType } from "@/lib/hospital-tools";
 import { sendHospitalMessage } from "@/lib/hospital-api";
 
@@ -14,6 +14,7 @@ export function useChat() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const pendingRef = useRef(false); // Prevent duplicate submissions
 
   const activeConversation = conversations.find((c) => c.id === activeConversationId) || null;
   const messages = activeConversation?.messages || [];
@@ -33,7 +34,11 @@ export function useChat() {
   }, []);
 
   const sendMessage = useCallback(
-    async (content: string, tool?: ToolType) => {
+    async (content: string, manualTool?: ToolType) => {
+      // Prevent duplicate submissions
+      if (pendingRef.current) return;
+      pendingRef.current = true;
+
       let convId = activeConversationId;
       if (!convId) {
         convId = createConversation();
@@ -43,7 +48,7 @@ export function useChat() {
         id: crypto.randomUUID(),
         role: "user",
         content,
-        tool,
+        tool: manualTool,
         timestamp: new Date(),
       };
 
@@ -70,14 +75,20 @@ export function useChat() {
 
       try {
         const allMessages = [...messages, userMsg];
-        const response = await sendHospitalMessage(allMessages, tool);
+        // SINGLE API CALL - intent detection + response in one
+        const result = await sendHospitalMessage(allMessages);
+
+        const detectedTool: ToolType | undefined =
+          result.tool_used !== "general" ? (result.tool_used as ToolType) : undefined;
+
         const assistantMsg: ChatMessage = {
           id: crypto.randomUUID(),
           role: "assistant",
-          content: response,
-          tool,
+          content: result.response,
+          tool: manualTool || detectedTool, // manual tool takes priority
           timestamp: new Date(),
         };
+
         setConversations((prev) =>
           prev.map((c) =>
             c.id === convId
@@ -102,6 +113,7 @@ export function useChat() {
         );
       } finally {
         setIsLoading(false);
+        pendingRef.current = false;
       }
     },
     [activeConversationId, messages, createConversation]

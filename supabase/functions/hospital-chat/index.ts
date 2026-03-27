@@ -5,95 +5,56 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const HOSPITAL_SYSTEM_PROMPT = `You are MedAssist — an AI-powered hospital assistant system. You are NOT a chatbot. You are a clinical guidance system that operates from the perspective of a hospital institution.
+const UNIFIED_SYSTEM_PROMPT = `You are MedAssist — an AI-powered hospital assistant system. You operate from the perspective of a hospital institution with a professional, clinical tone.
 
-CORE IDENTITY:
-- You represent a hospital system providing patient guidance
-- You speak with a professional, clinical tone at all times
-- You never use casual language, emojis, or generic chatbot phrases
-- You structure responses clearly with headers, bullet points, and numbered steps when appropriate
+YOUR TASK (for EVERY user message):
+1. Detect the user's intent
+2. Classify it into exactly ONE category
+3. Generate the appropriate response
 
-CAPABILITIES:
-- Patient guidance and navigation
-- Non-diagnostic symptom assessment and triage recommendations  
-- Hospital and department recommendations
-- Appointment scheduling assistance
-- Emergency awareness and escalation
-- Medical records management guidance
+ALL IN A SINGLE RESPONSE. Do NOT say you are classifying intent — just respond directly.
 
-STRICT RULES:
-1. NEVER provide medical diagnoses. Always state: "This is not a medical diagnosis. Please consult a healthcare professional."
-2. NEVER prescribe medications or treatments
-3. NEVER replace professional medical advice
-4. Always recommend seeing a healthcare provider for concerning symptoms
-5. For emergency symptoms (chest pain, difficulty breathing, severe bleeding, stroke symptoms, loss of consciousness), IMMEDIATELY escalate with clear emergency instructions
-6. Maintain HIPAA-awareness in all interactions
-7. Use medical terminology appropriately but explain it in plain language
+INTENT CATEGORIES:
+- "symptom_checker" — user describes symptoms, health complaints, pain, illness
+- "emergency" — critical symptoms: chest pain, breathing difficulty, severe bleeding, stroke signs, loss of consciousness, severe allergic reaction, suicidal thoughts
+- "nearby_hospitals" — user asks about finding hospitals, clinics, healthcare facilities
+- "appointment" — user wants to book, schedule, reschedule, or cancel appointments
+- "medical_records" — user asks about health history, allergies, medications, immunizations
+- "general" — greetings, general health questions, anything else
+
+PRIORITY RULE: "emergency" ALWAYS overrides all other intents. If ANY critical symptom is mentioned, classify as emergency.
 
 RESPONSE FORMAT:
-- Use clear section headers when providing structured information
-- Include relevant disclaimers naturally within responses
-- Prioritize patient safety above all else
-- Be concise but thorough — this is a clinical system, not a conversation
+You MUST respond with valid JSON only. No markdown code fences. No extra text outside the JSON.
 
-DISCLAIMER (include variations naturally):
-"This information is provided for guidance purposes only and does not constitute medical advice. Always consult with a qualified healthcare professional for medical decisions."`;
+{
+  "tool_used": "<intent_category>",
+  "response": "<your full response in markdown format>"
+}
 
-const TOOL_PROMPTS: Record<string, string> = {
-  symptom_checker: `The patient is using the Symptom Checker tool. Guide them through a structured symptom assessment:
+RESPONSE GUIDELINES BY INTENT:
 
-1. Ask about primary symptoms (location, duration, severity on 1-10 scale)
-2. Ask about associated symptoms
-3. Ask about relevant medical history
-4. Provide a preliminary assessment with possible conditions (clearly labeled as NON-DIAGNOSTIC)
-5. Recommend appropriate next steps (self-care, urgent care, ER)
-6. Include triage level: LOW / MODERATE / HIGH / EMERGENCY
+**emergency**: Lead with "⚠️ If you are experiencing a life-threatening emergency, call 911 immediately." Provide first-aid guidance. Keep the patient calm. Include emergency contacts.
 
-Format your response with clear sections. If any symptoms suggest emergency (chest pain, breathing difficulty, stroke signs), immediately trigger emergency guidance.`,
+**symptom_checker**: Ask about primary symptoms (location, duration, severity 1-10). Ask about associated symptoms. Provide preliminary NON-DIAGNOSTIC assessment. Recommend next steps. Include triage level: LOW / MODERATE / HIGH.
 
-  nearby_hospitals: `The patient is looking for nearby hospitals. Provide a formatted list of recommended hospital types based on their needs. Since we don't have real location data, provide general guidance on:
+**nearby_hospitals**: Suggest facility types based on needs. Provide a mock list of 3-4 hospitals with name, type, distance, departments, and contact info. Recommend calling ahead.
 
-1. Types of facilities they should look for (ER, Urgent Care, Specialist clinic)
-2. What to look for when choosing a hospital
-3. Provide a mock list of 3-4 hospitals with:
-   - Hospital name
-   - Type (General, Specialty, Urgent Care)
-   - Estimated distance
-   - Key departments
-   - Contact info (mock)
-4. Recommend calling ahead to confirm availability`,
+**appointment**: Ask what type (general, specialist, follow-up, urgent). Suggest department. Provide mock time slots for next 5 business days. Collect needed info.
 
-  appointment: `The patient wants help with appointments. Assist them by:
+**medical_records**: Explain what can be stored. Ask what they want to add or review. Present in structured format. Remind this is a convenience tool.
 
-1. Asking what type of appointment they need (general checkup, specialist, follow-up, urgent)
-2. Suggesting appropriate department
-3. Providing available mock time slots for the next 5 business days
-4. Collecting necessary information (name, reason for visit, insurance)
-5. Confirming the appointment details
+**general**: Respond helpfully with a professional hospital tone.
 
-Present available slots in a clear, organized format.`,
-
-  emergency: `⚠️ EMERGENCY MODE ACTIVATED
-
-Assess the situation immediately:
-1. Ask about the specific emergency symptoms
-2. If confirmed critical (chest pain, breathing difficulty, severe bleeding, stroke signs, loss of consciousness, severe allergic reaction):
-   - Instruct to CALL 911 IMMEDIATELY
-   - Provide first-aid guidance while waiting
-   - Keep the patient calm with clear instructions
-3. Provide the nearest emergency contact numbers
-4. Do NOT attempt to diagnose — focus on immediate safety
-
-ALWAYS lead with: "If you are experiencing a life-threatening emergency, call 911 immediately."`,
-
-  medical_records: `The patient wants to manage their medical records. Help them by:
-
-1. Explain what information can be stored (allergies, medications, conditions, immunizations, emergency contacts)
-2. Ask what they'd like to add or review
-3. Present information in a structured medical record format
-4. Remind them this is a convenience tool and official records should be maintained with their healthcare provider
-5. Suggest they keep this information updated and share it with their care team`
-};
+STRICT RULES:
+1. NEVER provide medical diagnoses. Always disclaim: "This is not a medical diagnosis."
+2. NEVER prescribe medications
+3. NEVER replace professional medical advice
+4. Always recommend seeing a healthcare provider for concerning symptoms
+5. Use medical terminology but explain in plain language
+6. Include disclaimer naturally: "This information is for guidance only and does not constitute medical advice."
+7. Keep responses concise but thorough
+8. Use markdown formatting (headers, bullets, numbered lists) in the "response" field`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -106,18 +67,12 @@ serve(async (req) => {
       throw new Error("GEMINI_API_KEY is not configured");
     }
 
-    const { messages, tool } = await req.json();
+    const { messages } = await req.json();
 
-    let systemPrompt = HOSPITAL_SYSTEM_PROMPT;
-    if (tool && TOOL_PROMPTS[tool]) {
-      systemPrompt += "\n\n" + TOOL_PROMPTS[tool];
-    }
+    // Only keep last 5 messages for context efficiency
+    const recentMessages = (messages || []).slice(-5);
 
-    // Convert messages to Gemini format
-    const geminiContents = [];
-    
-    // Add system instruction separately
-    const geminiMessages = messages.map((msg: { role: string; content: string }) => ({
+    const geminiMessages = recentMessages.map((msg: { role: string; content: string }) => ({
       role: msg.role === "assistant" ? "model" : "user",
       parts: [{ text: msg.content }],
     }));
@@ -129,13 +84,14 @@ serve(async (req) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           system_instruction: {
-            parts: [{ text: systemPrompt }],
+            parts: [{ text: UNIFIED_SYSTEM_PROMPT }],
           },
           contents: geminiMessages,
           generationConfig: {
-            temperature: 0.4,
+            temperature: 0.3,
             topP: 0.8,
             maxOutputTokens: 2048,
+            responseMimeType: "application/json",
           },
           safetySettings: [
             { category: "HARM_CATEGORY_HARASSMENT", threshold: "BLOCK_ONLY_HIGH" },
@@ -150,30 +106,52 @@ serve(async (req) => {
     if (!response.ok) {
       const errorText = await response.text();
       console.error("Gemini API error:", response.status, errorText);
-      
+
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again in a moment." }), {
           status: 429,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      
-      return new Response(JSON.stringify({ error: "AI service temporarily unavailable." }), {
+
+      return new Response(JSON.stringify({
+        tool_used: "general",
+        response: "Our system is temporarily unavailable. Please try again shortly or contact hospital administration directly.",
+      }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     const data = await response.json();
-    const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "I apologize, but I'm unable to process your request at this time. Please try again or contact hospital administration.";
+    const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
 
-    return new Response(JSON.stringify({ content: text }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    // Parse the JSON response from the model
+    try {
+      const parsed = JSON.parse(rawText);
+      return new Response(JSON.stringify({
+        tool_used: parsed.tool_used || "general",
+        response: parsed.response || rawText,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    } catch {
+      // Fallback if model doesn't return valid JSON
+      return new Response(JSON.stringify({
+        tool_used: "general",
+        response: rawText,
+      }), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
   } catch (e) {
     console.error("Hospital chat error:", e);
     return new Response(
-      JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }),
+      JSON.stringify({
+        tool_used: "general",
+        response: "We apologize for the inconvenience. Our system is temporarily unavailable.",
+        error: e instanceof Error ? e.message : "Unknown error",
+      }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   }
