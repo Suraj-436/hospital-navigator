@@ -1,13 +1,17 @@
-import { supabase } from "@/integrations/supabase/client";
-import type { ChatMessage, ToolType } from "@/lib/hospital-tools";
+import type { ToolType } from "@/lib/hospital-tools";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/hospital-chat`;
 
+export interface HospitalResponse {
+  tool_used: ToolType | "general";
+  response: string;
+}
+
 export async function sendHospitalMessage(
-  messages: ChatMessage[],
-  tool?: ToolType
-): Promise<string> {
-  const apiMessages = messages.map((m) => ({
+  messages: { role: string; content: string }[]
+): Promise<HospitalResponse> {
+  // Only send last 5 messages for context efficiency
+  const recentMessages = messages.slice(-5).map((m) => ({
     role: m.role,
     content: m.content,
   }));
@@ -18,7 +22,7 @@ export async function sendHospitalMessage(
       "Content-Type": "application/json",
       Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY}`,
     },
-    body: JSON.stringify({ messages: apiMessages, tool }),
+    body: JSON.stringify({ messages: recentMessages }),
   });
 
   if (resp.status === 429) {
@@ -26,10 +30,13 @@ export async function sendHospitalMessage(
   }
 
   if (!resp.ok) {
-    const err = await resp.json().catch(() => ({ error: "Service unavailable" }));
-    throw new Error(err.error || "Failed to get response");
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error || "Service unavailable");
   }
 
   const data = await resp.json();
-  return data.content;
+  return {
+    tool_used: data.tool_used || "general",
+    response: data.response || data.content || "Unable to process request.",
+  };
 }
