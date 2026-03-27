@@ -1,14 +1,23 @@
 import ReactMarkdown from "react-markdown";
-import { AlertTriangle, Activity, User } from "lucide-react";
-import type { ChatMessage } from "@/lib/hospital-tools";
+import { AlertTriangle, Activity, User, Stethoscope, MapPin, CalendarPlus, FileText, Sparkles } from "lucide-react";
+import type { ChatMessage, ToolType } from "@/lib/hospital-tools";
 
 interface MessageBubbleProps {
   message: ChatMessage;
 }
 
+const toolBadges: Record<ToolType, { label: string; icon: React.FC<{ className?: string }>; className: string }> = {
+  symptom_checker: { label: "Symptom Checker", icon: Stethoscope, className: "bg-primary/10 text-primary" },
+  nearby_hospitals: { label: "Nearby Hospitals", icon: MapPin, className: "bg-accent/10 text-accent" },
+  appointment: { label: "Appointment", icon: CalendarPlus, className: "bg-info/10 text-info" },
+  emergency: { label: "Emergency Mode", icon: AlertTriangle, className: "bg-emergency/10 text-emergency" },
+  medical_records: { label: "Medical Records", icon: FileText, className: "bg-muted text-muted-foreground" },
+};
+
 export function MessageBubble({ message }: MessageBubbleProps) {
   const isUser = message.role === "user";
   const isEmergency = message.tool === "emergency" && !isUser;
+  const badge = !isUser && message.tool ? toolBadges[message.tool] : null;
 
   return (
     <div className={`flex gap-3 animate-fade-in-up ${isUser ? "flex-row-reverse" : ""}`}>
@@ -29,6 +38,14 @@ export function MessageBubble({ message }: MessageBubbleProps) {
 
       {/* Content */}
       <div className={`max-w-[80%] ${isUser ? "chat-bubble-user" : isEmergency ? "emergency-alert" : "chat-bubble-assistant"}`}>
+        {/* Auto-detected tool badge */}
+        {badge && !isEmergency && (
+          <div className={`inline-flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-full mb-3 ${badge.className}`}>
+            <Sparkles className="h-3 w-3" />
+            {badge.label} Activated
+          </div>
+        )}
+
         {isEmergency && (
           <div className="flex items-center gap-2 mb-3 text-xs font-bold uppercase tracking-wider">
             <AlertTriangle className="h-3.5 w-3.5" />
