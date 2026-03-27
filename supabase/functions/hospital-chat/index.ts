@@ -89,7 +89,7 @@ serve(async (req) => {
         Authorization: `Bearer ${OPENROUTER_API_KEY}`,
       },
       body: JSON.stringify({
-        model: "deepseek/deepseek-r1-distill-qwen-7b",
+        model: "deepseek/deepseek-r1-distill-qwen-7b:free",
         messages: openRouterMessages,
         temperature: 0.3,
         max_tokens: 2048,
